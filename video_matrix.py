@@ -25,7 +25,7 @@ def search_to_link(query):
     """Simple RPC to get a link from a query"""
     return get_file_link(
         query,
-        hd=max(0, min(1, int(request.query.hd or 0))),
+        hd_toggle=max(0, min(1, int(request.query.hd or 0))),
         results=int(request.query.results or 30),
     )
 
