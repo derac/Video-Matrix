@@ -1,18 +1,22 @@
-import youtube_dl, json, pickle, re
+"""This module contains the searching and parsing mechanisms"""
+
+import re
+import json
+import pickle
 
 from time import time
 from os import path, makedirs
-from requests import post
-from bs4 import BeautifulSoup
 from random import randint, choice
 
+import youtube_dl
+
+from bs4 import BeautifulSoup
+from requests import post
+
 # initialization
-blacklist = " AND NOT (%s) " % " OR ".join(
-    "site:" + s.rstrip() for s in open("static/blacklist.txt")
+BLACKLIST = " AND NOT (%s) " % " OR ".join(
+    "site:" + s.rstrip() for s in open("static/BLACKLIST.txt")
 )  # create blacklist site query
-whitelist = " AND (%s) " % " OR ".join(
-    "site:" + s.rstrip() for s in []
-)  # put whitelist in list for testing purposes
 ydl = youtube_dl.YoutubeDL(
     {
         "format": "([protocol=https]/[protocol=http])[ext=mp4]",
@@ -30,27 +34,27 @@ with open("static/search_terms.txt") as f:
     ]  # generate search term list for use with retry and testing
 
 
-def get_file_link(search, hd=0, results=30):
+def get_file_link(search, hd_toggle=0, results=30):
     """Scrapes Bing and uses youtube_dl to return direct video link"""
     run_id, start = randint(1000, 9999), time()
     log(run_id, start, "SEARCH:", search)  # Logging and profiling
     search_cache, links = (
         "cache/%s_%s.pkl"
-        % (hd, re.sub(r"[^A-Za-z0-9_]+", "", search.replace(" ", "_").lower())),
+        % (hd_toggle, re.sub(r"[^A-Za-z0-9_]+", "", search.replace(" ", "_").lower())),
         [],
     )
     if path.exists(search_cache):
-        with open(search_cache, "rb") as f:
-            links = pickle.load(f)
+        with open(search_cache, "rb") as search_cache_file:
+            links = pickle.load(search_cache_file)
     else:  # if path exists, load it. otherwise, parse the search url
         try:
-            links = scrape_bing(search, hd)
-            with open(search_cache, "wb") as f:
-                pickle.dump(links, f)  # write to cache if successful
-        except Exception as e:
-            log(run_id, start, " ERROR:", e)
+            links = scrape_bing(search, hd_toggle)
+            with open(search_cache, "wb") as search_cache_file:
+                pickle.dump(links, search_cache_file)  # write to cache if successful
+        except Exception as exception:
+            log(run_id, start, " ERROR:", exception)
     if not links:
-        return retry(search, hd, results)  # retry if no links were returned
+        return retry(search, hd_toggle, results)  # retry if no links were returned
     log(run_id, start, " LINKS:", len(links))
 
     choices, file_link = links[:results], None  # limit results
@@ -61,47 +65,45 @@ def get_file_link(search, hd=0, results=30):
             file_link = ydl.extract_info(link, download=False).get(
                 "url", None
             )  # try youtube_dling it
-        except:
+        except Exception as _:
             links.remove(link)
             choices = links[:results]
-            with open(search_cache, "wb") as f:
-                pickle.dump(links, f)  # update cache
+            with open(search_cache, "wb") as search_cache_file:
+                pickle.dump(links, search_cache_file)  # update cache
         if not choices and not file_link:
             return retry(
-                search, hd, results
+                search, hd_toggle, results
             )  # retry if out of choices and no direct link found
     log(run_id, start, "$$$$$$:", file_link)
     return file_link  # log and return the direct link
 
 
-def scrape_url(url, soup_to_links, cookies):
+def url_to_links(url, soup_to_links, cookies):
+    """Scrape links from """
     try:
         soup = BeautifulSoup(
             post(url, cookies=cookies).content, "html.parser"
         )  # post request to search page and parse
-    except Exception as e:
-        raise Exception("Error during url scrape:", e)
+    except Exception as exception:
+        raise exception from Exception("Error during url scrape:", exception)
     links = soup_to_links(soup)
     if not links:
         raise Exception("No links were found from the search url.")
     return links
 
 
-def scrape_bing(search, hd):
+def scrape_bing(search, hd_toggle):
     """Scrape video links from Bing"""
-    page, hd = (
+    page, hd_toggle = (
         "&first=0&count=105",
-        "+filterui:resolution-720p" if hd else "",
+        "+filterui:resolution-720p" if hd_toggle else "",
     )  # The results can be paginated, max 105 per page
-    search_url = "https://www.bing.com/videos/asyncv2?q=%s%s%s&async=content%s%s" % (
-        search,
-        whitelist,
-        blacklist,
-        page,
-        hd,
+    search_url = (
+        f"https://www.bing.com/videos/asyncv2?q="
+        f"{search}{BLACKLIST}&async=content{page}{hd_toggle}"
     )
     try:
-        return scrape_url(
+        return url_to_links(
             search_url,
             lambda soup: [
                 json.loads(link["vrhm"])["pgurl"] for link in soup.select("div.vrhdata")
@@ -109,17 +111,22 @@ def scrape_bing(search, hd):
             cookies={},
         )
     # cookies = {'SRCHHPGUSR':'ADLT=OFF&CW=1117&CH=1771&DPR=2&UTC=-360&HV='+str(int(time()))})
-    except:
-        raise
+    except Exception as exception:
+        raise exception from exception
 
 
-def retry(search, hd, results):
+def retry(search, hd_toggle, results):
+    """
+    retry getting the file link
+    expands to max results, then tries a random search term
+    """
     return get_file_link(
-        choice(search_terms) if results == 105 else search, hd, 105
-    )  # expand to max results, then try random search term
+        choice(search_terms) if results == 105 else search, hd_toggle, 105
+    )
 
 
 def log(run_id, start, *args):
+    """logs some information with an id and time"""
     print(
         run_id, "%ss" % "{0:.2f}".format(time() - start)[:4], *args
     )  # Log with execution number and seconds get_file_link has been running

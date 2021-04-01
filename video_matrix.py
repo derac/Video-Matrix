@@ -1,10 +1,16 @@
-import sys, argparse, webbrowser
-from search import get_file_link
+"""Bottle server which runs the backend for the app."""
+
+import argparse
+import webbrowser
+
 from bottle import route, template, request, run, static_file
+
+from search import get_file_link
 
 
 @route("/")
 def main_page():
+    """Return the initial login remplate"""
     return template(
         "index.html",
         n=int(request.query.n or 4),
@@ -16,6 +22,7 @@ def main_page():
 
 @route("/search/<query>")
 def search_to_link(query):
+    """Simple RPC to get a link from a query"""
     return get_file_link(
         query,
         hd=max(0, min(1, int(request.query.hd or 0))),
@@ -25,6 +32,7 @@ def search_to_link(query):
 
 @route("/static/<file>")
 def get_static(file):
+    """Return any static files in the static directory"""
     return static_file(file, root="./static/")
 
 
