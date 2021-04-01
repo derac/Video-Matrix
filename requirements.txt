@@ -1,0 +1,5 @@
+requests
+youtube_dl
+bs4
+bottle
+waitress
